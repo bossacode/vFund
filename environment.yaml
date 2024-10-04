@@ -1,0 +1,9 @@
+name: vFund
+channels:
+  - pytorch
+  - defaults
+  - conda-forge
+dependencies:
+  - numpy=2.0.1=py310h3b2db8e_1
+  - python=3.10.15=hb885b13_1
+  - pytorch=2.4.1=py3.10_0
