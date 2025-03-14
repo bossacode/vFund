@@ -35,7 +35,7 @@ for target_fund in y_returns.columns:
             train_hist, test_hist, w_hist = run(x_log_return, y_log_return, cfg, log=True)
             
             # visualize return and asset
-            ret_asset_fig = viz_ret_asset(train_hist, test_hist, cfg)
+            ret_asset_fig = viz_ret_asset(train_hist.cpu(), test_hist.cpu(), cfg)
             wandb.log({"return asset plot": wandb.Image(ret_asset_fig)})
 
             # mse and mean loss of entire time series
@@ -74,7 +74,7 @@ for target_fund in y_returns.columns:
                             train_hist, test_hist, w_hist = run_tda(x_log_return, y_log_return, tdacfg, log=True)
 
                             # visualize return and asset
-                            ret_asset_fig = viz_ret_asset(train_hist, test_hist, cfg)
+                            ret_asset_fig = viz_ret_asset(train_hist.cpu(), test_hist.cpu(), cfg)
                             wandb.log({"return asset plot": wandb.Image(ret_asset_fig)})
 
                             # mse and mean loss of entire time series
