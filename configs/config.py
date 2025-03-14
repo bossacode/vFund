@@ -8,7 +8,7 @@ class Cfg:
     train_window_size:int = 52
     pred_window_size:int = 8
     window_shift:int = 8
-    lr:float = 0.1
+    lr:float = 0.5
     factor:float = 0.1      # factor by which the learning rate will be reduced
     sch_patience:int = 5    # learning rate scheduler patience
     es_patience:int = 15    # early stopping patience
@@ -31,7 +31,7 @@ class TDACfg:
     train_window_size:int = 52
     pred_window_size:int = 8
     window_shift:int = 8
-    lr:float = 0.1
+    lr:float = 0.5
     factor:float = 0.1
     sch_patience:int = 5
     es_patience:int = 15
@@ -52,7 +52,7 @@ class TDACfg:
     # # DTM
     m0:float = 0.01
     lims:List = field(default_factory=lambda: [[-0.1, 0.1], [-0.1, 0.1]])
-    size:List = field(default_factory=lambda: [40, 40])
+    size:List = field(default_factory=lambda: [30, 30])
 
     # PLLay
     constr:str = "V"
@@ -62,7 +62,7 @@ class TDACfg:
     K_max:int = 2
     dimensions:List = field(default_factory=lambda: [0, 1])
 
-    alpha:float = 100   # weight on TDA loss
+    alpha:float = 1 # weight on TDA loss
 
     def dict(self):
         return asdict(self)
