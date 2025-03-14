@@ -7,13 +7,13 @@ def reg_fit(train_hist, test_hist):
     pred_hist, test_target_hist = zip(*test_hist)
 
     # train
-    x = sm.add_constant(torch.concat(fitted_hist).numpy())
-    est = sm.OLS(torch.concat(train_target_hist).numpy(), x)
+    x = sm.add_constant(torch.concat(fitted_hist).cpu().numpy())
+    est = sm.OLS(torch.concat(train_target_hist).cpu().numpy(), x)
     train_fit = est.fit()
     
     # test
-    x = sm.add_constant(torch.concat(pred_hist).numpy())
-    est = sm.OLS(torch.concat(test_target_hist).numpy(), x)
+    x = sm.add_constant(torch.concat(pred_hist).cpu().numpy())
+    est = sm.OLS(torch.concat(test_target_hist).cpu().numpy(), x)
     test_fit = est.fit()
 
     print("Train")

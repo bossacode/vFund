@@ -135,7 +135,7 @@ class DTMLayer(nn.Module):
             dtm_val (torch.Tensor): DTM value. Shape: (H, W).
         """
         bound = self.m0 * x.shape[-2]
-        dist = pc2grid_dist(x, self.grid)                           # shape: (H*W, N)
+        dist = pc2grid_dist(x, self.grid.to(x.device))              # shape: (H*W, N)
         # knn, find k s.t. k-1 < bound <= k
         k = torch.math.ceil(bound)
         knn_dist, knn_index = dist.topk(k, largest=False, dim=-1)   # shape: (H*W, k)
