@@ -19,7 +19,7 @@ def viz_avg_error(train_hist, test_hist):
     plt.xticks(range(len(train_hist)))
     plt.legend(prop={'size': 15})
     plt.grid(True)
-    plt.show();
+    plt.close(fig)
     return fig
 
 
@@ -59,7 +59,7 @@ def viz_ret_asset(train_hist, test_hist, cfg):
     ax[1,1].set_title("Train asset")
     ax[1,1].legend(prop={'size': 30})
     ax[1,1].grid(True)
-    plt.show();
+    plt.close(fig)
     return fig
 
 
@@ -69,5 +69,5 @@ def viz_weights(w_hist):
     plt.title("Weights")
     plt.xlabel("Assets")
     plt.ylabel("Windows")
-    plt.show();
+    plt.close(fig)
     return fig
