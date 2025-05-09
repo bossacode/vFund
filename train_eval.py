@@ -84,7 +84,7 @@ def run(X, y, cfg, log=False):
         cfg.window_shift = cfg.pred_window_size
     train_window_start = 0
     i_window = 1
-    asset_pred_hist = [1.0]             # initial asset is set to 1.0
+    nav_pred_hist = [1.0]               # initial net asset value is set to 1.0
     w_hist = [torch.zeros(X.shape[1])]  # all weights are considered to be 0 before first rebalancing
     while train_window_start + cfg.train_window_size + cfg.pred_window_size <= X.shape[0]:
         print(f"Window {i_window}".center(30))
@@ -119,18 +119,18 @@ def run(X, y, cfg, log=False):
         # calculate transaction cost
         w_prev = w_hist[-2]
         buy = torch.where(w > w_prev, 1., 0.)   # indicator representing whether each stock was bought(=1) or sold/no transaction(=0)
-        current_asset = asset_pred_hist[-1]
-        transaction_cost = current_asset * torch.sum((cfg.fcb*buy - cfg.fcs*(1-buy)) * (w - w_prev))
+        current_nav = nav_pred_hist[-1]
+        transaction_cost = current_nav * torch.sum((cfg.fcb*buy - cfg.fcs*(1-buy)) * (w - w_prev))
 
         # track net asset value
-        current_asset -= transaction_cost   # current asset after rebalancing
-        asset_pred = current_asset * y_pred.exp().cumprod(dim=0)
-        asset_pred_hist.extend(asset_pred.cpu().tolist())
+        current_nav -= transaction_cost     # net asset value after rebalancing
+        nav_pred = current_nav * y_pred.exp().cumprod(dim=0)
+        nav_pred_hist.extend(nav_pred.cpu().tolist())
 
         # shift window
         train_window_start += cfg.window_shift
         i_window += 1
-    return asset_pred_hist, w_hist
+    return torch.tensor(nav_pred_hist), torch.stack(w_hist, dim=0).cpu()
 
 
 def run_tda(X, y, cfg, overestimate=False, log=False):
@@ -139,7 +139,7 @@ def run_tda(X, y, cfg, overestimate=False, log=False):
         cfg.window_shift = cfg.pred_window_size
     train_window_start = 0
     i_window = 1
-    asset_pred_hist = [1.0]             # initial asset is set to 1.0
+    nav_pred_hist = [1.0]               # initial net asset value is set to 1.0
     w_hist = [torch.zeros(X.shape[1])]  # all weights are considered to be 0 before first rebalancing
     # TDA layers
     embed = TakensEmbedding(time_delay=cfg.time_delay, dimension=cfg.dimension, stride=cfg.stride)
@@ -180,15 +180,15 @@ def run_tda(X, y, cfg, overestimate=False, log=False):
 
         # calculate transaction cost
         buy = torch.where(w > w_prev, 1., 0.)   # indicator representing whether each stock was bought(=1) or sold/no transaction(=0)
-        current_asset = asset_pred_hist[-1]
-        transaction_cost = current_asset * torch.sum((cfg.fcb*buy - cfg.fcs*(1-buy)) * (w - w_prev))
+        current_nav = nav_pred_hist[-1]
+        transaction_cost = current_nav * torch.sum((cfg.fcb*buy - cfg.fcs*(1-buy)) * (w - w_prev))
 
         # track net asset value
-        current_asset -= transaction_cost   # current asset after rebalancing
-        asset_pred = current_asset * y_pred.exp().cumprod(dim=0)
-        asset_pred_hist.extend(asset_pred.cpu().tolist())
+        current_nav -= transaction_cost     # net asset value after rebalancing
+        nav_pred = current_nav * y_pred.exp().cumprod(dim=0)
+        nav_pred_hist.extend(nav_pred.cpu().tolist())
 
         # shift window
         train_window_start += cfg.window_shift
         i_window += 1
-    return asset_pred_hist, w_hist
+    return torch.tensor(nav_pred_hist), torch.stack(w_hist, dim=0).cpu()

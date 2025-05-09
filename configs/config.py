@@ -3,7 +3,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List
 
 @dataclass
-class Cfg:
+class QPcfg:
     # training parameters
     train_window_size:int = 52
     pred_window_size:int = 8
@@ -13,11 +13,13 @@ class Cfg:
     sch_patience:int = 5    # learning rate scheduler patience
     es_patience:int = 15    # early stopping patience
     threshold:float = 1e-7  # threshold for measuring the new optimum, to only focus on significant changes.
-    mode:str = "L2"         # loss function to use
+    loss_fn:str = "L2"      # loss function to use
+    fcb:float = 0.01        # fractional cost of buying one unit of stock
+    fcs:float = 0.01        # fractional cost of selling one unit of stock
     device:str = "cuda" if torch.cuda.is_available() else "cpu"
     
     # model initialization and regularization parameters
-    use_k:bool = False
+    # use_k:bool = False
     # k:int = 10             # number of assets to use
     # lamda:float = 0.1      # weight on regularization
 
@@ -26,7 +28,7 @@ class Cfg:
 
 
 @dataclass
-class TDACfg:
+class TDAcfg:
     # training parameters
     train_window_size:int = 52
     pred_window_size:int = 8
@@ -36,17 +38,14 @@ class TDACfg:
     sch_patience:int = 5
     es_patience:int = 15
     threshold:float = 1e-7
-    mode:str = "L2"
+    loss_fn:str = "L2"
+    fcb:float = 0.01
+    fcs:float = 0.01
     device:str = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    # model initialization and regularization parameters
-    use_k:bool = False
-    # k:int = 10             # number of assets to use
-    # lamda:float = 0.1      # weight on regularization
     
     # TDA parameters
     # Takens Embedding
-    time_delay:int = 1
+    time_delay:int = 5
     dimension:int = 2
     stride:int = 1
     # # DTM
@@ -58,11 +57,27 @@ class TDACfg:
     constr:str = "V"
     sublevel:bool = True
     interval:List = field(default_factory=lambda: [0., 0.02])
-    steps:int = 64
+    steps:int = 52
     K_max:int = 2
     dimensions:List = field(default_factory=lambda: [0, 1])
 
-    alpha:float = 1 # weight on TDA loss
+    gamma:float = 10    # weight on TDA loss
+
+    # model initialization and regularization parameters
+    # use_k:bool = False
+    # k:int = 10             # number of assets to use
+    # lamda:float = 0.1      # weight on regularization
 
     def dict(self):
         return asdict(self)
+
+
+# @dataclass
+# class BaselineCfg:
+#     # training parameters
+#     train_window_size:int = 52
+#     pred_window_size:int = 8
+#     window_shift:int = 8
+
+#     def dict(self):
+#         return asdict(self)
