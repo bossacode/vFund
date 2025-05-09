@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
-from torch.optim import Adam, SGD
+from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import wandb
+from copy import deepcopy
 from gd import Model
-from utils.loss_fn import LossFn, MipLossFn, TdaLossFn
+from utils.loss_fn import LossFn, TdaLossFn, TdaScaledLossFn
 from utils.tda import TakensEmbedding, DTMLayer, CubicalPL
 
 
@@ -40,7 +41,7 @@ class EarlyStopping:
             return not stop, not improve
 
 
-def train(X, y, model, loss_fn, optim1, optim2, scheduler, early_stopping, log=False):
+def train(X, y, model, loss_fn, optim, scheduler, early_stopping, log=False):
     i_epoch = 1
     model.train()
     while True:
@@ -49,27 +50,21 @@ def train(X, y, model, loss_fn, optim1, optim2, scheduler, early_stopping, log=F
         print(f"Training loss: {loss.item():>10f} [Epoch {i_epoch:>3d}]")
 
         loss.backward()
-        optim1.step()
-        optim1.zero_grad()
-        if optim2 is not None:
-            optim2.step()
-            optim2.zero_grad()
-
-        if scheduler:
-            scheduler.step(loss)
+        optim.step()
+        optim.zero_grad()
+        scheduler.step(loss)
         
         # early stopping
         stop, improve = early_stopping.stop_training(loss, i_epoch)
         if stop:
             if log:
                 wandb.log({"best_training_loss":early_stopping.best_loss})  # log only the best training loss
-            model.load_state_dict(model_state_dict)
             break
         elif improve:
-            model_state_dict = model.state_dict()
-            y_best_fitted = y_fitted.detach()
+            best_state_dict = deepcopy(model.state_dict())  # weights of best model
+            y_best_fitted = deepcopy(y_fitted.detach())
         i_epoch += 1
-    return y_best_fitted
+    return y_best_fitted, best_state_dict
 
 
 def eval(X, y, model, loss_fn, log=False):
@@ -89,7 +84,8 @@ def run(X, y, cfg, log=False):
         cfg.window_shift = cfg.pred_window_size
     train_window_start = 0
     i_window = 1
-    train_hist, test_hist, w_hist = [], [], []
+    asset_pred_hist = [1.0]             # initial asset is set to 1.0
+    w_hist = [torch.zeros(X.shape[1])]  # all weights are considered to be 0 before first rebalancing
     while train_window_start + cfg.train_window_size + cfg.pred_window_size <= X.shape[0]:
         print(f"Window {i_window}".center(30))
         print("-"*30)
@@ -98,68 +94,54 @@ def run(X, y, cfg, log=False):
         pred_window_end = train_window_end + cfg.pred_window_size
 
         # set data
-        x_train = X[train_window_start:train_window_end]
-        y_train = y[train_window_start:train_window_end]
-        x_test = X[train_window_end:pred_window_end]
-        y_test = y[train_window_end:pred_window_end]
+        x_train, y_train = X[train_window_start:train_window_end], y[train_window_start:train_window_end]
+        x_test, y_test = X[train_window_end:pred_window_end], y[train_window_end:pred_window_end]
         
         # set model
-        model = Model(cfg.use_k).to(cfg.device)
+        model = Model(use_k=False).to(cfg.device)
         model(x_train)  # perform dry run to initialize weights
         
-        # set loss function and optimizer
-        if cfg.use_k:
-            loss_fn = MipLossFn(cfg.mode, cfg, model)
-            params_list = list(model.parameters())
-            optim1 = Adam([params_list[0]], cfg.lr) # optimizer for w
-            optim2 = SGD([params_list[1]], cfg.lr)  # optimizer for k
-        else:
-            loss_fn = LossFn(cfg.mode)
-            optim1 = Adam(model.parameters(), cfg.lr)
-            optim2 = None
-        
-        # set learning rate scheduler
-        try:
-            scheduler = ReduceLROnPlateau(optim1, mode="min", factor=cfg.factor, patience=cfg.sch_patience, threshold=cfg.threshold, threshold_mode="abs")
-        except:
-            scheduler = None
-            print("No learning rate scheduler!\n")
-        
-        # set early stopping
+        # set loss function, optimizer, lr scheduler, and early stopping
+        loss_fn = LossFn(cfg)
+        optim = Adam(model.parameters(), cfg.lr)
+        scheduler = ReduceLROnPlateau(optim, mode="min", factor=cfg.factor, patience=cfg.sch_patience, threshold=cfg.threshold, threshold_mode="abs")
         early_stopping = EarlyStopping(patience=cfg.es_patience, threshold=cfg.threshold)
         
-        # train
-        fitted = train(x_train.nan_to_num(0), y_train, model, loss_fn, optim1, optim2, scheduler, early_stopping, log)
-        train_hist.append((fitted, y_train))
+        # train and save weights
+        y_best_fitted, best_state_dict = train(x_train.nan_to_num(0), y_train, model, loss_fn, optim, scheduler, early_stopping, log)
+        w = torch.softmax(best_state_dict["w"], dim=0)
+        w_hist.append(w)
 
         # test
-        pred = eval(x_test.nan_to_num(0), y_test, model, loss_fn, log)
-        test_hist.append((pred, y_test))
+        model.load_state_dict(best_state_dict)
+        y_pred = eval(x_test.nan_to_num(0), y_test, model, loss_fn, log)
 
-        # save weight
-        if cfg.use_k:
-            w = torch.zeros_like(model.w)
-            k = round(model.k.item())
-            w_k, idx = torch.topk(model.w.detach(), k)
-            w_k = torch.softmax(w_k, dim=0)
-            w[idx] = w_k
-        else:
-            w = torch.softmax(model.w.detach(), dim=0)
-        w_hist.append(w)
+        # calculate transaction cost
+        w_prev = w_hist[-2]
+        buy = torch.where(w > w_prev, 1., 0.)   # indicator representing whether each stock was bought(=1) or sold/no transaction(=0)
+        current_asset = asset_pred_hist[-1]
+        transaction_cost = current_asset * torch.sum((cfg.fcb*buy - cfg.fcs*(1-buy)) * (w - w_prev))
+
+        # track net asset value
+        current_asset -= transaction_cost   # current asset after rebalancing
+        asset_pred = current_asset * y_pred.exp().cumprod(dim=0)
+        asset_pred_hist.extend(asset_pred.cpu().tolist())
 
         # shift window
         train_window_start += cfg.window_shift
         i_window += 1
-    return train_hist, test_hist, w_hist
+    return asset_pred_hist, w_hist
 
 
-def run_tda(X, y, cfg, log=False):
+def run_tda(X, y, cfg, overestimate=False, log=False):
     X, y = X.to(cfg.device), y.to(cfg.device)
     if cfg.window_shift is None:
         cfg.window_shift = cfg.pred_window_size
     train_window_start = 0
     i_window = 1
-    train_hist, test_hist, w_hist = [], [], []
+    asset_pred_hist = [1.0]             # initial asset is set to 1.0
+    w_hist = [torch.zeros(X.shape[1])]  # all weights are considered to be 0 before first rebalancing
+    # TDA layers
     embed = TakensEmbedding(time_delay=cfg.time_delay, dimension=cfg.dimension, stride=cfg.stride)
     dtm = DTMLayer(cfg.m0, cfg.lims, cfg.size)
     pllay = CubicalPL(cfg.constr, cfg.sublevel, cfg.interval, cfg.steps, cfg.K_max, cfg.dimensions)
@@ -171,57 +153,42 @@ def run_tda(X, y, cfg, log=False):
         pred_window_end = train_window_end + cfg.pred_window_size
 
         # set data
-        x_train = X[train_window_start:train_window_end]
-        y_train = y[train_window_start:train_window_end]
+        x_train, y_train = X[train_window_start:train_window_end], y[train_window_start:train_window_end]
+        x_test, y_test = X[train_window_end:pred_window_end], y[train_window_end:pred_window_end]
         pl_train = pllay(dtm(embed(y_train)))
-        x_test = X[train_window_end:pred_window_end]
-        y_test = y[train_window_end:pred_window_end]
-        # pl_test = pllay(dtm(embed(y_test)))
         
         # set model
-        model = Model(cfg.use_k).to(cfg.device)
+        model = Model(use_k=False).to(cfg.device)
         model(x_train)  # perform dry run to initialize weights
         
-        # set loss function and optimizer
-        if cfg.use_k:
-            raise NotImplementedError
-        else:
-            train_loss_fn = TdaLossFn(cfg.mode, cfg, pl_train)
-            # test_loss_fn = TdaLossFn(cfg.mode, cfg, pl_test)
-            test_loss_fn = LossFn(cfg.mode)
-            optim1 = Adam(model.parameters(), cfg.lr)
-            optim2 = None
-        
-        # set learning rate scheduler
-        try:
-            scheduler = ReduceLROnPlateau(optim1, mode="min", factor=cfg.factor, patience=cfg.sch_patience, threshold=cfg.threshold, threshold_mode="abs")
-        except:
-            scheduler = None
-            print("No learning rate scheduler!\n")
-        
-        # set early stopping
+        # set loss function, optimizer, lr scheduler, and early stopping
+        w_prev = w_hist[-1]
+        train_loss_fn = TdaScaledLossFn(cfg, model, pl_train, w_prev) if overestimate else  TdaLossFn(cfg, pl_train)
+        test_loss_fn = LossFn(cfg)
+        optim = Adam(model.parameters(), cfg.lr)
+        scheduler = ReduceLROnPlateau(optim, mode="min", factor=cfg.factor, patience=cfg.sch_patience, threshold=cfg.threshold, threshold_mode="abs")
         early_stopping = EarlyStopping(patience=cfg.es_patience, threshold=cfg.threshold)
         
-        # train
-        fitted = train(x_train.nan_to_num(0), y_train, model, train_loss_fn, optim1, optim2, scheduler, early_stopping, log)
-        train_hist.append((fitted, y_train))
-
-        # test
-        pred = eval(x_test.nan_to_num(0), y_test, model, test_loss_fn, log)
-        test_hist.append((pred, y_test))
-
-        # save weight
-        if cfg.use_k:
-            w = torch.zeros_like(model.w)
-            k = round(model.k.item())
-            w_k, idx = torch.topk(model.w.detach(), k)
-            w_k = torch.softmax(w_k, dim=0)
-            w[idx] = w_k
-        else:
-            w = torch.softmax(model.w.detach(), dim=0)
+        # train and save weights
+        y_best_fitted, best_state_dict = train(x_train.nan_to_num(0), y_train, model, train_loss_fn, optim, scheduler, early_stopping, log)
+        w = torch.softmax(best_state_dict["w"], dim=0)
         w_hist.append(w)
+        
+        # test
+        model.load_state_dict(best_state_dict)
+        y_pred = eval(x_test.nan_to_num(0), y_test, model, test_loss_fn, log)
+
+        # calculate transaction cost
+        buy = torch.where(w > w_prev, 1., 0.)   # indicator representing whether each stock was bought(=1) or sold/no transaction(=0)
+        current_asset = asset_pred_hist[-1]
+        transaction_cost = current_asset * torch.sum((cfg.fcb*buy - cfg.fcs*(1-buy)) * (w - w_prev))
+
+        # track net asset value
+        current_asset -= transaction_cost   # current asset after rebalancing
+        asset_pred = current_asset * y_pred.exp().cumprod(dim=0)
+        asset_pred_hist.extend(asset_pred.cpu().tolist())
 
         # shift window
         train_window_start += cfg.window_shift
         i_window += 1
-    return train_hist, test_hist, w_hist
+    return asset_pred_hist, w_hist
