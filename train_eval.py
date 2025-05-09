@@ -85,7 +85,7 @@ def run(X, y, cfg, log=False):
     train_window_start = 0
     i_window = 1
     nav_pred_hist = [1.0]               # initial net asset value is set to 1.0
-    w_hist = [torch.zeros(X.shape[1])]  # all weights are considered to be 0 before first rebalancing
+    w_hist = [torch.zeros(X.shape[1], device=cfg.device)]  # all weights are considered to be 0 before first rebalancing
     while train_window_start + cfg.train_window_size + cfg.pred_window_size <= X.shape[0]:
         print(f"Window {i_window}".center(30))
         print("-"*30)
