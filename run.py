@@ -9,13 +9,15 @@ from utils.linear_reg import reg_fit
 torch.manual_seed(123)
 
 # Universe
-df_return = pd.read_pickle("./data/prev/universe_2012_ret.pkl").iloc[1:, :]
+# df_return = pd.read_pickle("./data/prev/universe_2012_ret.pkl").iloc[1:, :]
+df_return = pd.read_csv("./data/universe_ret.csv", index_col=0)
 drop_cols = df_return.columns[(df_return.abs() > 0.3).any()]    # drop columns s.t. have absolute value of returns larger than 0.3
 x_return = torch.from_numpy(df_return.drop(columns=drop_cols).to_numpy("float32"))
 x_log_return = torch.log(x_return + 1)
 
 # Target
-y_returns = pd.read_pickle("./data/prev/target_2012_ret.pkl").iloc[1:, :]
+# y_returns = pd.read_pickle("./data/prev/target_2012_ret.pkl").iloc[1:, :]
+y_returns = pd.read_csv("./data/target_ret.csv", index_col=0)
 
 # Parameter Search Domain
 # window_params = ([52, 8, 8], [26, 4, 4])    # tuple of [train_window_size, pred_window_size, window_shift]
