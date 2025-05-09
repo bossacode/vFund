@@ -1,4 +1,3 @@
-import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -17,6 +16,7 @@ def viz_logret_nav(logret_pred, logret_true, nav_pred, nav_true):
     ax[1].plot(nav_true, "--v", label="True", c='#CC79A7', lw=lw)
     ax[1].set_title("Net Asset Value")
     ax[1].legend(prop={'size': 60})
+    plt.close(fig)
     return fig
 
 

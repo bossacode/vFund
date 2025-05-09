@@ -3,7 +3,7 @@ import pandas as pd
 import wandb
 from configs.config import QPcfg, TDAcfg
 from train_eval import run, run_tda
-from utils.visualize import viz_logret_nav
+from utils.visualize import viz_logret_nav, viz_weights
 from utils.linear_reg import reg_fit
 
 torch.manual_seed(123)
@@ -66,6 +66,10 @@ for target_fund in y_returns.columns:
             fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
             wandb.log({"return asset plot": wandb.Image(fig)})
 
+            # visualize model weights
+            w_fig = viz_weights(w_hist)
+            wandb.log({"weight plot": wandb.Image(w_fig)})
+
             # mse & mean prediction loss of entire time series
             test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
             test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
@@ -101,6 +105,10 @@ for target_fund in y_returns.columns:
                         fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
                         wandb.log({"return asset plot": wandb.Image(fig)})
 
+                        # visualize model weights
+                        w_fig = viz_weights(w_hist)
+                        wandb.log({"weight plot": wandb.Image(w_fig)})
+
                         # mse & mean prediction loss of entire time series
                         test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
                         test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
@@ -129,6 +137,10 @@ for target_fund in y_returns.columns:
                         fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
                         wandb.log({"return asset plot": wandb.Image(fig)})
 
+                        # visualize model weights
+                        w_fig = viz_weights(w_hist)
+                        wandb.log({"weight plot": wandb.Image(w_fig)})
+
                         # mse & mean prediction loss of entire time series
                         test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
                         test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
@@ -141,7 +153,6 @@ for target_fund in y_returns.columns:
                         skew = float(test_fit.summary2().tables[2].iloc[2,1])
                         wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
 
-    break
 
         # baseline
         # basecfg = BaselineCfg(train_window_size, pred_window_size, window_shift)
