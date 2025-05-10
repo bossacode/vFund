@@ -20,13 +20,11 @@ x_log_return = torch.log(x_return + 1)
 y_returns = pd.read_csv("./data/target_ret.csv", index_col=0)
 
 # Parameter Search Domain
-# window_params = ([52, 8, 8], [26, 4, 4])    # tuple of [train_window_size, pred_window_size, window_shift]
-window_params = ([52, 8, 8], )      # tuple of [train_window_size, pred_window_size, window_shift]
-embedding_params = (                # tuple of [time_delay, stride]
+window_params = [104, 12, 12]   # tuple of [train_window_size, pred_window_size, window_shift]
+embedding_params = (            # tuple of [time_delay, stride]
     [2, 1],
     [5, 1],
-    [10, 1],
-    [15, 1]
+    [10, 1]
     ) 
 lims_params = (
     [[-0.15, 0.15], [-0.15, 0.15]],
@@ -49,109 +47,109 @@ project_name = "vfund"
 for target_fund in y_returns.columns:
     y_return = torch.from_numpy(y_returns.loc[:, target_fund].to_numpy("float32"))
     y_log_return = torch.log(y_return + 1)
-    for train_window_size, pred_window_size, window_shift in window_params:
-        # QP
-        cfg = QPcfg(train_window_size, pred_window_size, window_shift)
-        with wandb.init(config=cfg, project=project_name, group=target_fund, job_type="QP"):
-            cfg = wandb.config
-            
-            nav_pred, w_hist = run(x_log_return, y_log_return, cfg, log=True)
-            
-            # compute predicted & true log return values and true net asset value for entire prediction period
-            log_return_pred = nav2logret(nav_pred)
-            log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
-            nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
+    train_window_size, pred_window_size, window_shift = window_params
+    # QP
+    cfg = QPcfg(train_window_size, pred_window_size, window_shift)
+    with wandb.init(config=cfg, project=project_name, group=target_fund, job_type="QP"):
+        cfg = wandb.config
+        
+        nav_pred, w_hist = run(x_log_return, y_log_return, cfg, log=True)
+        
+        # compute predicted & true log return values and true net asset value for entire prediction period
+        log_return_pred = nav2logret(nav_pred)
+        log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
+        nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
 
-            # visualize return and asset
-            fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
-            wandb.log({"return asset plot": wandb.Image(fig)})
+        # visualize return and asset
+        fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
+        wandb.log({"return asset plot": wandb.Image(fig)})
 
-            # visualize model weights
-            w_fig = viz_weights(w_hist)
-            wandb.log({"weight plot": wandb.Image(w_fig)})
+        # visualize model weights
+        w_fig = viz_weights(w_hist)
+        wandb.log({"weight plot": wandb.Image(w_fig)})
 
-            # mse & mean prediction loss of entire time series
-            test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
-            test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
-            wandb.log({"mse_loss":test_mse_loss, "avg_loss":test_avg_loss})
+        # mse & mean prediction loss of entire time series
+        test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
+        test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
+        wandb.log({"mse_loss":test_mse_loss, "avg_loss":test_avg_loss})
 
-            # regression fit between predicted & true log return
-            test_fit = reg_fit(log_return_pred, log_return_true)
-            intercept, slope = test_fit.summary2().tables[1].iloc[:, 0]
-            intercept_se, slope_se = test_fit.summary2().tables[1].iloc[:, 1]
-            skew = float(test_fit.summary2().tables[2].iloc[2,1])
-            wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
+        # regression fit between predicted & true log return
+        test_fit = reg_fit(log_return_pred, log_return_true)
+        intercept, slope = test_fit.summary2().tables[1].iloc[:, 0]
+        intercept_se, slope_se = test_fit.summary2().tables[1].iloc[:, 1]
+        skew = float(test_fit.summary2().tables[2].iloc[2,1])
+        wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
 
-        # TDA
-        for time_delay, stride in embedding_params:
-            for lims in lims_params:
-                for interval in interval_params:
+    # TDA
+    for time_delay, stride in embedding_params:
+        for lims in lims_params:
+            for interval in interval_params:
+                
+                gamma = torch.rand(1).item()    # sample from Unif(0, 1)
+                
+                # TDA without overestimating
+                cfg = TDAcfg(train_window_size, pred_window_size, window_shift, time_delay=time_delay, stride=stride, lims=lims, interval=interval, gamma=gamma)
+                with wandb.init(config=cfg, project=project_name, group=target_fund, job_type="TDA"):
+                    cfg = wandb.config
                     
-                    gamma = 5 + (torch.rand(1) * 5).item()  # sample from Unif(5, 10)
+                    nav_pred, w_hist = run_tda(x_log_return, y_log_return, cfg, overestimate=False, log=True)
 
-                    cfg = TDAcfg(train_window_size, pred_window_size, window_shift, time_delay=time_delay, stride=stride, lims=lims, interval=interval, gamma=gamma)
-                    # TDA without overestimating
-                    with wandb.init(config=cfg, project=project_name, group=target_fund, job_type="TDA"):
-                        cfg = wandb.config
-                        
-                        nav_pred, w_hist = run_tda(x_log_return, y_log_return, cfg, overestimate=False, log=True)
+                    # compute predicted & true log return values and true net asset value for entire prediction period
+                    log_return_pred = nav2logret(nav_pred)
+                    log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
+                    nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
 
-                        # compute predicted & true log return values and true net asset value for entire prediction period
-                        log_return_pred = nav2logret(nav_pred)
-                        log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
-                        nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
+                    # visualize return and asset
+                    fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
+                    wandb.log({"return asset plot": wandb.Image(fig)})
 
-                        # visualize return and asset
-                        fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
-                        wandb.log({"return asset plot": wandb.Image(fig)})
+                    # visualize model weights
+                    w_fig = viz_weights(w_hist)
+                    wandb.log({"weight plot": wandb.Image(w_fig)})
 
-                        # visualize model weights
-                        w_fig = viz_weights(w_hist)
-                        wandb.log({"weight plot": wandb.Image(w_fig)})
+                    # mse & mean prediction loss of entire time series
+                    test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
+                    test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
+                    wandb.log({"mse_loss":test_mse_loss, "avg_loss":test_avg_loss})
 
-                        # mse & mean prediction loss of entire time series
-                        test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
-                        test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
-                        wandb.log({"mse_loss":test_mse_loss, "avg_loss":test_avg_loss})
+                    # regression fit between predicted & true log return
+                    test_fit = reg_fit(log_return_pred, log_return_true)
+                    intercept, slope = test_fit.summary2().tables[1].iloc[:, 0]
+                    intercept_se, slope_se = test_fit.summary2().tables[1].iloc[:, 1]
+                    skew = float(test_fit.summary2().tables[2].iloc[2,1])
+                    wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
 
-                        # regression fit between predicted & true log return
-                        test_fit = reg_fit(log_return_pred, log_return_true)
-                        intercept, slope = test_fit.summary2().tables[1].iloc[:, 0]
-                        intercept_se, slope_se = test_fit.summary2().tables[1].iloc[:, 1]
-                        skew = float(test_fit.summary2().tables[2].iloc[2,1])
-                        wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
+                # TDA with overestimating
+                cfg = TDAcfg(train_window_size, pred_window_size, window_shift, time_delay=time_delay, stride=stride, lims=lims, interval=interval, gamma=gamma)
+                with wandb.init(config=cfg, project=project_name, group=target_fund, job_type="TDA+TC"):
+                    cfg = wandb.config
+                    
+                    nav_pred, w_hist = run_tda(x_log_return, y_log_return, cfg, overestimate=True, log=True)
 
-                    # TDA with overestimating
-                    cfg = TDAcfg(train_window_size, pred_window_size, window_shift, time_delay=time_delay, stride=stride, lims=lims, interval=interval, gamma=gamma)
-                    with wandb.init(config=cfg, project=project_name, group=target_fund, job_type="TDA+TC"):
-                        cfg = wandb.config
-                        
-                        nav_pred, w_hist = run_tda(x_log_return, y_log_return, cfg, overestimate=True, log=True)
+                    # compute predicted & true log return values and true net asset value for entire prediction period
+                    log_return_pred = nav2logret(nav_pred)
+                    log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
+                    nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
 
-                        # compute predicted & true log return values and true net asset value for entire prediction period
-                        log_return_pred = nav2logret(nav_pred)
-                        log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
-                        nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
+                    # visualize return and asset
+                    fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
+                    wandb.log({"return asset plot": wandb.Image(fig)})
 
-                        # visualize return and asset
-                        fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
-                        wandb.log({"return asset plot": wandb.Image(fig)})
+                    # visualize model weights
+                    w_fig = viz_weights(w_hist)
+                    wandb.log({"weight plot": wandb.Image(w_fig)})
 
-                        # visualize model weights
-                        w_fig = viz_weights(w_hist)
-                        wandb.log({"weight plot": wandb.Image(w_fig)})
+                    # mse & mean prediction loss of entire time series
+                    test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
+                    test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
+                    wandb.log({"mse_loss":test_mse_loss, "avg_loss":test_avg_loss})
 
-                        # mse & mean prediction loss of entire time series
-                        test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
-                        test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
-                        wandb.log({"mse_loss":test_mse_loss, "avg_loss":test_avg_loss})
-
-                        # regression fit between predicted & true log return
-                        test_fit = reg_fit(log_return_pred, log_return_true)
-                        intercept, slope = test_fit.summary2().tables[1].iloc[:, 0]
-                        intercept_se, slope_se = test_fit.summary2().tables[1].iloc[:, 1]
-                        skew = float(test_fit.summary2().tables[2].iloc[2,1])
-                        wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
+                    # regression fit between predicted & true log return
+                    test_fit = reg_fit(log_return_pred, log_return_true)
+                    intercept, slope = test_fit.summary2().tables[1].iloc[:, 0]
+                    intercept_se, slope_se = test_fit.summary2().tables[1].iloc[:, 1]
+                    skew = float(test_fit.summary2().tables[2].iloc[2,1])
+                    wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
 
 
         # baseline
