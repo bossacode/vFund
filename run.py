@@ -58,7 +58,10 @@ for target_fund in y_returns.columns:
         # compute predicted & true log return values and true net asset value for entire prediction period
         log_return_pred = nav2logret(nav_pred)
         log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
-        nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
+        nav_true = torch.concat([torch.tensor([nav_pred[0]]), nav_pred[0] * log_return_true.exp().cumprod(dim=0)])  # nav_pred[0] contains initial net asset value
+
+        # log net asset values
+        wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
 
         # visualize return and asset
         fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
@@ -97,7 +100,10 @@ for target_fund in y_returns.columns:
                     # compute predicted & true log return values and true net asset value for entire prediction period
                     log_return_pred = nav2logret(nav_pred)
                     log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
-                    nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
+                    nav_true = torch.concat([torch.tensor([nav_pred[0]]), nav_pred[0] * log_return_true.exp().cumprod(dim=0)])  # nav_pred[0] contains initial net asset value
+
+                    # log net asset values
+                    wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
 
                     # visualize return and asset
                     fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
@@ -129,7 +135,10 @@ for target_fund in y_returns.columns:
                     # compute predicted & true log return values and true net asset value for entire prediction period
                     log_return_pred = nav2logret(nav_pred)
                     log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
-                    nav_true = nav_pred[0] * log_return_true.exp().cumprod(dim=0)   # nav_pred[0] contains initial net asset value
+                    nav_true = torch.concat([torch.tensor([nav_pred[0]]), nav_pred[0] * log_return_true.exp().cumprod(dim=0)])  # nav_pred[0] contains initial net asset value
+
+                    # log net asset values
+                    wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
 
                     # visualize return and asset
                     fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
