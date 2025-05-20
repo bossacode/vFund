@@ -5,6 +5,7 @@ from configs.config import QPcfg, TDAcfg
 from train_eval import run, run_tda
 from utils.visualize import viz_logret_nav, viz_weights
 from utils.linear_reg import reg_fit
+import os
 
 torch.manual_seed(123)
 
@@ -20,7 +21,8 @@ x_log_return = torch.log(x_return + 1)
 y_returns = pd.read_csv("./data/target_ret.csv", index_col=0)
 
 # Parameter Search Domain
-window_params = [104, 12, 12]   # tuple of [train_window_size, pred_window_size, window_shift]
+# window_params = [104, 12, 12]   # tuple of [train_window_size, pred_window_size, window_shift]
+window_params = [104, 16, 16]
 embedding_params = (            # tuple of [time_delay, stride]
     [2, 1],
     [5, 1],
@@ -43,45 +45,47 @@ def nav2logret(nav):
 
 
 # hyperparameter search
-project_name = "vfund"
+project_name = "vfund2"
 for target_fund in y_returns.columns:
+    if target_fund in ['PBFDX.US.Equity','VMGAX.US.Equity', 'HFMDX.US.Equity']:
+        continue
     y_return = torch.from_numpy(y_returns.loc[:, target_fund].to_numpy("float32"))
     y_log_return = torch.log(y_return + 1)
     train_window_size, pred_window_size, window_shift = window_params
     # QP
-    cfg = QPcfg(train_window_size, pred_window_size, window_shift)
-    with wandb.init(config=cfg, project=project_name, group=target_fund, job_type="QP"):
-        cfg = wandb.config
+    # cfg = QPcfg(train_window_size, pred_window_size, window_shift)
+    # with wandb.init(config=cfg, project=project_name, group=target_fund, job_type="QP"):
+    #     cfg = wandb.config
         
-        nav_pred, w_hist = run(x_log_return, y_log_return, cfg, log=True)
+    #     nav_pred, w_hist = run(x_log_return, y_log_return, cfg, log=True)
         
-        # compute predicted & true log return values and true net asset value for entire prediction period
-        log_return_pred = nav2logret(nav_pred)
-        log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
-        nav_true = torch.concat([torch.tensor([nav_pred[0]]), nav_pred[0] * log_return_true.exp().cumprod(dim=0)])  # nav_pred[0] contains initial net asset value
+    #     # compute predicted & true log return values and true net asset value for entire prediction period
+    #     log_return_pred = nav2logret(nav_pred)
+    #     log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
+    #     nav_true = torch.concat([torch.tensor([nav_pred[0]]), nav_pred[0] * log_return_true.exp().cumprod(dim=0)])  # nav_pred[0] contains initial net asset value
 
-        # log net asset values
-        wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
+    #     # log net asset values
+    #     wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
 
-        # visualize return and asset
-        fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
-        wandb.log({"return asset plot": wandb.Image(fig)})
+    #     # visualize return and asset
+    #     fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
+    #     wandb.log({"return asset plot": wandb.Image(fig)})
 
-        # visualize model weights
-        w_fig = viz_weights(w_hist)
-        wandb.log({"weight plot": wandb.Image(w_fig)})
+    #     # visualize model weights
+    #     w_fig = viz_weights(w_hist)
+    #     wandb.log({"weight plot": wandb.Image(w_fig)})
 
-        # mse & mean prediction loss of entire time series
-        test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
-        test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
-        wandb.log({"mse_loss":test_mse_loss, "avg_loss":test_avg_loss})
+    #     # mse & mean prediction loss of entire time series
+    #     test_mse_loss = torch.mean((log_return_pred - log_return_true)**2).item()
+    #     test_avg_loss = torch.mean(log_return_pred - log_return_true).item()
+    #     wandb.log({"mse_loss":test_mse_loss, "avg_loss":test_avg_loss})
 
-        # regression fit between predicted & true log return
-        test_fit = reg_fit(log_return_pred, log_return_true)
-        intercept, slope = test_fit.summary2().tables[1].iloc[:, 0]
-        intercept_se, slope_se = test_fit.summary2().tables[1].iloc[:, 1]
-        skew = float(test_fit.summary2().tables[2].iloc[2,1])
-        wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
+    #     # regression fit between predicted & true log return
+    #     test_fit = reg_fit(log_return_pred, log_return_true)
+    #     intercept, slope = test_fit.summary2().tables[1].iloc[:, 0]
+    #     intercept_se, slope_se = test_fit.summary2().tables[1].iloc[:, 1]
+    #     skew = float(test_fit.summary2().tables[2].iloc[2,1])
+    #     wandb.log({"intercept":intercept, "slope":slope, "intercept_se":intercept_se, "slope_se":slope_se, "skew":skew})
 
     # TDA
     for time_delay, stride in embedding_params:
@@ -102,8 +106,15 @@ for target_fund in y_returns.columns:
                     log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
                     nav_true = torch.concat([torch.tensor([nav_pred[0]]), nav_pred[0] * log_return_true.exp().cumprod(dim=0)])  # nav_pred[0] contains initial net asset value
 
-                    # log net asset values
-                    wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
+                    # # log net asset values
+                    # wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
+                    
+                    ###########################################################################
+                    dir_path = f"./{target_fund}/tda/{cfg.fcb}"
+                    os.makedirs(dir_path, exist_ok=True)
+                    df = pd.DataFrame(torch.stack([nav_pred, nav_true]).T.numpy())
+                    df.to_csv(dir_path + f"{gamma}.csv")
+                    ###########################################################################
 
                     # visualize return and asset
                     fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
@@ -137,8 +148,15 @@ for target_fund in y_returns.columns:
                     log_return_true = y_log_return[cfg.train_window_size:(cfg.train_window_size+len(log_return_pred))]
                     nav_true = torch.concat([torch.tensor([nav_pred[0]]), nav_pred[0] * log_return_true.exp().cumprod(dim=0)])  # nav_pred[0] contains initial net asset value
 
-                    # log net asset values
-                    wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
+                    # # log net asset values
+                    # wandb.log({"nav table": wandb.Table(columns=["pred nav", "true nav"], data=[[i, j] for i,j in zip(nav_pred, nav_true)])})
+
+                    ###########################################################################
+                    dir_path = f"./{target_fund}/tda_tc/{cfg.fcb}"
+                    os.makedirs(dir_path, exist_ok=True)
+                    df = pd.DataFrame(torch.stack([nav_pred, nav_true]).T.numpy())
+                    df.to_csv(dir_path + f"{gamma}.csv")
+                    ###########################################################################
 
                     # visualize return and asset
                     fig = viz_logret_nav(log_return_pred, log_return_true, nav_pred, nav_true)
