@@ -70,14 +70,3 @@ class TDAcfg:
 
     def dict(self):
         return asdict(self)
-
-
-# @dataclass
-# class BaselineCfg:
-#     # training parameters
-#     train_window_size:int = 52
-#     pred_window_size:int = 8
-#     window_shift:int = 8
-
-#     def dict(self):
-#         return asdict(self)
